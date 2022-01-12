@@ -3,7 +3,9 @@ use crate::{random_point_in_unit_sphere, random_unit_vector};
 use crate::{Color, HitRecord, Ray};
 use rand::Rng;
 
-pub trait Material {
+use std::marker::{Send, Sync};
+
+pub trait Material: Send + Sync {
     /// Returns the scattered ray and its attenuation
     fn scatter(&self, input_ray: &Ray, hit_record: &HitRecord) -> Option<(Ray, Color)>;
 }

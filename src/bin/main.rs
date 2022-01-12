@@ -1,19 +1,23 @@
 use raytracer::*;
 
 use rand::distributions::{Distribution, Uniform};
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
+use rayon::prelude::*;
 
 use std::convert::TryInto;
 use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
-use std::rc::Rc;
+use std::sync::Arc;
 
 fn main() -> std::io::Result<()> {
-    let verbose = matches!(std::env::args().nth(1).as_deref(), Some("--verbose" | "-v"));
-
     // image
-    let image = ImageSettings::default();
-    let samples_per_pixel: usize = 10;
+    let image = ImageSettings::from_width(400);
+    // let image = ImageSettings::from_width(1920);
+    let samples_per_pixel: usize = 50;
     let max_depth = 50;
 
     // world
@@ -40,48 +44,71 @@ fn main() -> std::io::Result<()> {
 
     // rng
     let distribution = Uniform::new(-1.0, 1.0);
-    let mut rng = rand::thread_rng();
+    let rng = StdRng::from_entropy();
 
-    // file
+    // render
+    let denominator_u = image.img_width as f64 - 1.0;
+    let denominator_v = image.img_height as f64 - 1.0;
+
+    let progress = ProgressBar::new(image.img_height)
+        .with_prefix("Rendering")
+        .with_style(
+            ProgressStyle::default_bar()
+                .template("{prefix} [{wide_bar}] {percent}% [{elapsed_precise}/{duration_precise}]")
+                .progress_chars("=> "),
+        );
+
+    let scene: Vec<Vec<Point>> = (0..image.img_height as usize)
+        .into_par_iter()
+        .rev()
+        .map(|j| {
+            progress.inc(1);
+
+            let row: Vec<Point> = (0..image.img_width)
+                .into_par_iter()
+                .map(|i| {
+                    let u = (i as f64) / denominator_u;
+                    let v = (j as f64) / denominator_v;
+
+                    let mut pixel =
+                        (0..samples_per_pixel).fold(Color::from_element(0.0), |acc, _| {
+                            let u_extra = distribution.sample(&mut rng.clone()) / denominator_u;
+                            let v_extra = distribution.sample(&mut rng.clone()) / denominator_v;
+
+                            let ray = camera.get_ray(u + u_extra, v + v_extra);
+                            acc + ray_color(&ray, &world, max_depth)
+                        });
+
+                    pixel.apply(|x| {
+                        // sqrt() is to gamma-correct for gamma=2.0
+                        *x = (*x / samples_per_pixel as f64).sqrt().clamp(0.0, 0.999) * 256_f64;
+                    });
+
+                    pixel
+                })
+                .collect();
+
+            row
+        })
+        .collect();
+
+    // io
     let file = OpenOptions::new()
         .write(true)
         .create(true)
         .open("image.ppm")?;
 
-    let mut writer = BufWriter::with_capacity(4000 * samples_per_pixel, file);
+    let mut writer =
+        BufWriter::with_capacity(image.num_pixels() as usize * samples_per_pixel, file);
 
-    // render
     write!(
         writer,
         "P3\n{} {}\n255\n",
         image.img_width, image.img_height
     )?;
 
-    let denominator_u = image.img_width as f64 - 1.0;
-    let denominator_v = image.img_height as f64 - 1.0;
-
-    for j in (0..image.img_height).rev() {
-        if verbose {
-            eprintln!("Scanlines remaining: {} ", j);
-        }
-
-        for i in 0..image.img_width {
-            let u = (i as f64) / denominator_u;
-            let v = (j as f64) / denominator_v;
-
-            let mut pixel = (0..samples_per_pixel).fold(Color::from_element(0.0), |acc, _| {
-                let u_extra = distribution.sample(&mut rng) / denominator_u;
-                let v_extra = distribution.sample(&mut rng) / denominator_v;
-
-                let ray = camera.get_ray(u + u_extra, v + v_extra);
-                acc + ray_color(&ray, &world, max_depth)
-            });
-
-            pixel.apply(|x| {
-                // sqrt() is to gamma-correct for gamma=2.0
-                *x = (*x / samples_per_pixel as f64).sqrt().clamp(0.0, 0.999) * 256_f64;
-            });
-
+    for row in scene {
+        for pixel in row {
             writeln!(
                 writer,
                 "{} {} {}",
@@ -89,13 +116,11 @@ fn main() -> std::io::Result<()> {
             )?;
         }
     }
-
-    // finish
     writer.flush()?;
 
-    if verbose {
-        eprintln!("Done!");
-    }
+    let duration = format!("{:?}", progress.elapsed());
+    // progress.println(&duration);
+    println!("{}\n", &duration);
 
     Ok(())
 }
@@ -104,8 +129,8 @@ fn random_scene(size: isize) -> HittableList {
     let num_spheres: usize = (4 + (2 * size).pow(2)).try_into().unwrap();
     let mut world = HittableList::with_capacity(num_spheres);
 
-    let ground_material = Rc::new(Lambertian::new(Color::from_element(0.5)));
-    world.add(Rc::new(Sphere::new(
+    let ground_material = Arc::new(Lambertian::new(Color::from_element(0.5)));
+    world.add(Arc::new(Sphere::new(
         Point::new(0.0, -1000.0, 0.0),
         1000.0,
         ground_material,
@@ -130,46 +155,46 @@ fn random_scene(size: isize) -> HittableList {
             );
 
             if (origin - origin_reference).norm() > 0.9 {
-                let sphere_material: Rc<dyn Material>;
+                let sphere_material: Arc<dyn Material>;
 
                 if choose_material < 0.8 {
                     // diffuse
                     let albedo = Color::from_distribution(&distribution, &mut rng)
                         .component_mul(&Color::from_distribution(&distribution, &mut rng));
 
-                    sphere_material = Rc::new(Lambertian::new(albedo));
+                    sphere_material = Arc::new(Lambertian::new(albedo));
                 } else if choose_material < 0.95 {
                     // metal
                     let albedo = Color::from_distribution(&metal_albedo_distribution, &mut rng);
                     let fuzz = rng.gen_range(0.0..0.5);
 
-                    sphere_material = Rc::new(Metal::new(albedo, fuzz));
+                    sphere_material = Arc::new(Metal::new(albedo, fuzz));
                 } else {
                     // glass
-                    sphere_material = Rc::new(Dielectric::new(1.5));
+                    sphere_material = Arc::new(Dielectric::new(1.5));
                 }
 
-                world.add(Rc::new(Sphere::new(origin, 0.2, sphere_material)));
+                world.add(Arc::new(Sphere::new(origin, 0.2, sphere_material)));
             }
         }
     }
 
-    let material1 = Rc::new(Dielectric::new(1.5));
-    world.add(Rc::new(Sphere::new(
+    let material1 = Arc::new(Dielectric::new(1.5));
+    world.add(Arc::new(Sphere::new(
         Point::new(0.0, 1.0, 0.0),
         1.0,
         material1,
     )));
 
-    let material2 = Rc::new(Lambertian::new(Color::new(0.4, 0.2, 0.1)));
-    world.add(Rc::new(Sphere::new(
+    let material2 = Arc::new(Lambertian::new(Color::new(0.4, 0.2, 0.1)));
+    world.add(Arc::new(Sphere::new(
         Point::new(-4.0, 1.0, 0.0),
         1.0,
         material2,
     )));
 
-    let material3 = Rc::new(Metal::new(Color::new(0.7, 0.6, 0.5), 0.0));
-    world.add(Rc::new(Sphere::new(
+    let material3 = Arc::new(Metal::new(Color::new(0.7, 0.6, 0.5), 0.0));
+    world.add(Arc::new(Sphere::new(
         Point::new(4.0, 1.0, 0.0),
         1.0,
         material3,
@@ -180,19 +205,26 @@ fn random_scene(size: isize) -> HittableList {
 
 struct ImageSettings {
     aspect_ratio: f64,
-    img_width: i32,
-    img_height: i32,
+    img_width: u64,
+    img_height: u64,
 }
 
-impl Default for ImageSettings {
-    fn default() -> Self {
-        let aspect_ratio = 16.0 / 9.0;
-        let img_width = 1200;
-
+impl ImageSettings {
+    fn new(img_width: u64, aspect_ratio: f64) -> Self {
         Self {
             aspect_ratio,
             img_width,
-            img_height: (img_width as f64 / aspect_ratio) as i32,
+            img_height: (img_width as f64 / aspect_ratio) as u64,
         }
+    }
+
+    /// Create an image with aspect ratio of 16:9 and given width
+    fn from_width(width: u64) -> Self {
+        let aspect_ratio = 16.0 / 9.0;
+        Self::new(width, aspect_ratio)
+    }
+
+    fn num_pixels(&self) -> u64 {
+        self.img_width * self.img_height
     }
 }

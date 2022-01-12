@@ -1,11 +1,12 @@
 use crate::util::{Point, Vector};
 use crate::{Material, Ray};
-use std::rc::Rc;
+use std::marker::{Send, Sync};
+use std::sync::Arc;
 
 pub struct HitRecord {
     pub point: Point,
     pub normal: Vector,
-    pub material: Rc<dyn Material>,
+    pub material: Arc<dyn Material>,
     t: f64,
     pub front_face: bool,
 }
@@ -14,7 +15,7 @@ impl HitRecord {
     pub fn new(
         point: Point,
         outward_normal: &Vector,
-        material: Rc<dyn Material>,
+        material: Arc<dyn Material>,
         t: f64,
         ray: &Ray,
     ) -> Self {
@@ -31,12 +32,12 @@ impl HitRecord {
     }
 }
 
-pub trait Hittable {
+pub trait Hittable: Sync + Send {
     fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord>;
 }
 
 pub struct HittableList {
-    items: Vec<Rc<dyn Hittable>>,
+    items: Vec<Arc<dyn Hittable>>,
 }
 
 impl HittableList {
@@ -46,7 +47,7 @@ impl HittableList {
         }
     }
 
-    pub fn add(&mut self, item: Rc<dyn Hittable>) {
+    pub fn add(&mut self, item: Arc<dyn Hittable>) {
         self.items.push(item);
     }
 }

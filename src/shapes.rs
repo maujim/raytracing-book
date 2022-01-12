@@ -1,16 +1,16 @@
 use crate::util::Point;
 use crate::{HitRecord, Hittable, Material, Ray};
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub struct Sphere {
     pub origin: Point,
     pub radius: f64,
-    pub material: Rc<dyn Material>,
+    pub material: Arc<dyn Material>,
 }
 
 impl Sphere {
-    pub fn new(origin: Point, radius: f64, material: Rc<dyn Material>) -> Self {
+    pub fn new(origin: Point, radius: f64, material: Arc<dyn Material>) -> Self {
         Self {
             origin,
             radius,
@@ -44,7 +44,7 @@ impl Hittable for Sphere {
         let point = ray.at(root);
         let outward_normal = (point - self.origin) / self.radius;
 
-        let material = Rc::clone(&self.material);
+        let material = Arc::clone(&self.material);
 
         Some(HitRecord::new(point, &outward_normal, material, root, ray))
     }
