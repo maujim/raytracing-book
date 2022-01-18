@@ -90,7 +90,7 @@ fn main() -> std::io::Result<()> {
         })
         .collect();
 
-    progress.println(format!("{:?}", progress.elapsed()));
+    progress.println(format!("Rendering took {:?}", progress.elapsed()));
 
     // io
     let file = OpenOptions::new()
