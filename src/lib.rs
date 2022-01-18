@@ -1,6 +1,5 @@
 #![warn(clippy::all)]
 
-#[macro_use]
 mod util;
 mod hittable;
 mod material;

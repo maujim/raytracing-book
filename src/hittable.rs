@@ -20,7 +20,11 @@ impl HitRecord {
         ray: &Ray,
     ) -> Self {
         let front_face = ray.direction.dot(outward_normal) < 0.0;
-        let normal = ternary!(front_face, *outward_normal, -1.0 * (*outward_normal));
+
+        let mut normal = *outward_normal;
+        if !front_face {
+            normal *= -1.0;
+        };
 
         Self {
             point,
