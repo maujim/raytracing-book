@@ -54,8 +54,7 @@ fn main() -> std::io::Result<()> {
         .with_prefix("Rendering")
         .with_style(
             ProgressStyle::default_bar()
-                .template("{prefix} [{wide_bar}] {percent}% [{elapsed_precise}/{duration_precise}]")
-                .progress_chars("=> "),
+                .template("{spinner} {prefix} {percent}% [{elapsed_precise}/{duration_precise}]"),
         );
 
     let scene: Vec<Vec<Point>> = (0..image.img_height as usize)
@@ -92,6 +91,8 @@ fn main() -> std::io::Result<()> {
         })
         .collect();
 
+    progress.println(format!("{:?}", progress.elapsed()));
+
     // io
     let file = OpenOptions::new()
         .write(true)
@@ -117,10 +118,6 @@ fn main() -> std::io::Result<()> {
         }
     }
     writer.flush()?;
-
-    let duration = format!("{:?}", progress.elapsed());
-    // progress.println(&duration);
-    println!("{}\n", &duration);
 
     Ok(())
 }
