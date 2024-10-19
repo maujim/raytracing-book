@@ -1,10 +1,10 @@
 #![warn(clippy::all)]
 
-mod util;
 mod hittable;
 mod material;
 mod ray;
 mod shapes;
+mod util;
 
 pub use crate::camera::Camera;
 pub use crate::hittable::{HitRecord, Hittable, HittableList};

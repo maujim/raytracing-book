@@ -19,6 +19,11 @@ fn main() -> std::io::Result<()> {
     let samples_per_pixel: usize = 100;
     let max_depth = 50;
 
+    println!(
+        "Rendering a {}x{} image with {} samples and use at most {} bounces for each ray",
+        image.img_width, image.img_height, samples_per_pixel, max_depth
+    );
+
     // world
     let items_in_scene = 11;
     let world = random_scene(items_in_scene);
